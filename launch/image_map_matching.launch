@@ -1,0 +1,21 @@
+<launch>
+    <!-- <node pkg="image_map_matching" type="mavic_data_publisher" name="mavic_data_publisher" output="screen">
+        <param name="DEBUG_MODE" value="false"/>
+        <param name="csvFilePath" value="$(find image_map_matching)/sensorData/sensorData_ver2.csv"/>
+        <param name="imageFolderPath" value="$(find image_map_matching)/imageData/"/>
+        
+    </node> -->
+
+    <node pkg="image_map_matching" type="image_map_matching" name="map_matching_pf" output="screen">
+        <param name="DEBUG_MODE" value="true"/>
+        <param name="m_cfg_iNumParticle" value="100"/>
+        <param name="m_iNumState" value="4"/>
+        <param name="m_dStdEast" value="0.01"/>
+        <param name="m_dStdNorth" value="0.01"/>
+        <param name="m_dStdUp" value="0.01"/>
+        <param name="m_MapNodePath" value="$(find image_map_matching)/mapData/0224_mapdata_node_0.csv"/>
+        <param name="m_MapWayPath" value="$(find image_map_matching)/mapData/0224_mapdata_way_0.csv"/>
+    
+    </node>
+
+</launch>
