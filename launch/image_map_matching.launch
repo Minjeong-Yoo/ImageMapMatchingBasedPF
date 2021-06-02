@@ -9,7 +9,7 @@
     <node pkg="image_map_matching" type="image_map_matching" name="map_matching_pf" output="screen">
         <param name="DEBUG_MODE" value="true"/>
         <param name="m_cfg_iNumParticle" value="100"/>
-        <param name="m_iNumState" value="4"/>
+        <param name="m_iNumState" value="15"/>
         <param name="m_dStdEast" value="0.01"/>
         <param name="m_dStdNorth" value="0.01"/>
         <param name="m_dStdUp" value="0.01"/>

@@ -10,6 +10,7 @@
 #include <geometry_msgs/Point.h>
 #include <sensor_msgs/NavSatFix.h>
 #include <sensor_msgs/Imu.h>
+#include <sensor_msgs/MagneticField.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
@@ -24,20 +25,26 @@ class MapMatchingPF
     struct GNSS
     {
         double timestamp;
-        double latitude;
-        double longitude;
-        double altitude;
+        double latitude = 0.0;
+        double longitude = 0.0;
+        double altitude = 0.0;
+        double latitude_std;
+        double longitude_std;
+        double altitude_std;
     };
 
     struct IMU
     {
         double timestamp;
-        double linear_acceleration_x;
-        double linear_acceleration_y;
-        double linear_acceleration_z;
-        double angular_velocity_x;
-        double angular_velocity_y;
-        double angular_velocity_z;
+        double linear_acceleration_x = 0.0;
+        double linear_acceleration_y = 0.0;
+        double linear_acceleration_z = 0.0;
+        double angular_velocity_x = 0.0;
+        double angular_velocity_y = 0.0;
+        double angular_velocity_z = 0.0;
+        double magnetic_field_x = 0.0;
+        double magnetic_field_y = 0.0;
+        double magnetic_field_z = 0.0;
 
     };
 
@@ -53,8 +60,9 @@ class MapMatchingPF
         void SensorInit();
         void ParticleInit();
 
-        void CallBackGNSS(const sensor_msgs::NavSatFix::ConstPtr &msg);
-        void CallBackIMU(const sensor_msgs::Imu::ConstPtr &msg);
+        void CallBackGnss(const sensor_msgs::NavSatFix::ConstPtr &msg);
+        void CallBackImu(const sensor_msgs::Imu::ConstPtr &msg);
+        void CallBackImuMagnetometer(const sensor_msgs::MagneticField::ConstPtr &msg);
 
 
 
@@ -72,6 +80,7 @@ class MapMatchingPF
 
         ros::Subscriber m_sub_gnss;
         ros::Subscriber m_sub_imu;
+        ros::Subscriber m_sub_imu_magetometer;
 
         ros::Publisher m_pub_map_lane;
         ros::Publisher m_pub_map_lane_array;
@@ -95,11 +104,18 @@ class MapMatchingPF
         const double Geod_e2 = 0.00669437999014; // FirstEccentricitySquard, e ^ 2 
         const double DEG2RAD = M_PI / 180;
         const double RAD2DEG = 180 / M_PI;
+        const double Interval = 15; // Sensor bias compensation during stationary periods(15s)  
+
+        int m_iGnssCount = 0;
+        int m_iImuCount = 0;
+        int m_iMagnetometerCount = 0;
 
         GNSS m_gnssInitGnss;
         GNSS m_gnssGnss;
+        GNSS m_gnssGnssSum;
         IMU m_imuInitImu;
         IMU m_imuImu;
+        IMU m_imuImuSum;
 
         // Flag 
         bool _DEBUG_MODE;
@@ -110,6 +126,7 @@ class MapMatchingPF
         bool m_bImuExistFlag;
         bool m_bGnssExistFlag;
         bool m_bIsInitGnss; 
+        bool m_bIsFirstMagnetometerStep;
 
         std::default_random_engine m_RandGenerator;
 
@@ -127,8 +144,7 @@ class MapMatchingPF
         Eigen::MatrixXd m_MatEstRepState;           // representative state
         Eigen::MatrixXd m_MatEstRepStd;
 
-
-
+        
 
 
         double m_dMapHeight;

@@ -3,7 +3,7 @@
 #define __APP_NAME__ "map_matching_pf"
 
 MapMatchingPF::MapMatchingPF()
-:m_bIsInit(false), m_bIsInitGNSS(false), m_bIsFirstIMUStep(false), m_bMapInit(false),
+:m_bIsInit(false), m_bIsInitGNSS(false), m_bIsFirstIMUStep(false), m_bIsFirstMagnetometerStep(false), m_bMapInit(false),
 m_bGnssExistFlag(false), m_bImuExistFlag(false),
 m_dMapHeight(7.0)
 {
@@ -11,8 +11,9 @@ m_dMapHeight(7.0)
     int buffer_size = 1;
    
     // Subscriber
-    m_sub_gnss = nh.subscribe("/mavros/global_position/global", buffer_size, &MapMatchingPF::CallBackGNSS, this);
-    m_sub_imu = nh.subscribe("/mavros/imu/data_raw", buffer_size, &MapMatchingPF::CallBackIMU, this);
+    m_sub_gnss = nh.subscribe("/mavros/global_position/global", buffer_size, &MapMatchingPF::CallBackGnss, this);
+    m_sub_imu = nh.subscribe("/mavros/imu/data_raw", buffer_size, &MapMatchingPF::CallBackImu, this);
+    m_sub_imu_magetometer = nh.subscribe("/mavros/imu/mag", buffer_size, &MapMatchingPF::CallBackImuMagnetometer, this);
 
     // Publisher
     m_pub_map_lane = nh.advertise<visualization_msgs::Marker>("/map_lane", 10);
@@ -62,7 +63,7 @@ void MapMatchingPF::GetParameter()
         ROS_INFO("[%s] m_cfg_iNumState: %d", __APP_NAME__, m_iNumState);
         ROS_INFO("[%s] m_cfg_iNumState: %lf", __APP_NAME__, m_dStdEast);
         ROS_INFO("[%s] m_cfg_iNumState: %lf", __APP_NAME__, m_dStdNorth);
-        ROS_INFO("[%s] m_cfg_iNumState: %lf", __APP_NAME__, m_dStdUp);
+        ROS_INFO("[%s] m_cfg_iNumState: %lf\n", __APP_NAME__, m_dStdUp);
     }
 }
 
@@ -206,7 +207,7 @@ void MapMatchingPF::MapVisualizer()
 
     m_pub_map_lane_array.publish(map_lane_array);
 
-    if(_DEBUG_MODE) ROS_INFO_STREAM("MapVisulizer function finish");
+    if(_DEBUG_MODE) ROS_INFO_STREAM("MapVisulizer function finish\n");
 }
 
 
@@ -222,14 +223,15 @@ void MapMatchingPF::SensorInit()
 
     while(!m_bIsInit && ros::ok())
     {
-        // if(_DEBUG_MODE)
-        // {
-        //         std::cout << "Initializing\n" << "m_bIsInitGNSS: " << m_bIsInitGNSS 
-        //         << " m_bIsFirstIMUStep: " << m_bIsFirstIMUStep 
-        //         << " m_bMapInit: " << m_bMapInit << "\n" << std::endl; 
-        // }
+        if(_DEBUG_MODE)
+        {
+                std::cout << "Initializing\n" << "m_bIsInitGNSS: " << m_bIsInitGNSS 
+                << " m_bIsFirstIMUStep: " << m_bIsFirstIMUStep 
+                << " m_bIsFirstMagnetometer: " << m_bIsFirstMagnetometerStep
+                << " m_bMapInit: " << m_bMapInit << "\n" << std::endl; 
+        }
 
-        if(m_bIsInitGNSS && m_bIsFirstIMUStep && m_bMapInit)
+        if(m_bIsInitGNSS && m_bIsFirstIMUStep && m_bIsFirstMagnetometerStep && m_bMapInit)
         {
             m_bIsInit = true;
             return;
@@ -251,14 +253,17 @@ void MapMatchingPF::ParticleInit()
     for(int particleIdx = 0; particleIdx < m_cfg_iNumParticle; particleIdx++)
     {
         // Position
-        initState(particleIdx,0) = InitGnssEnu.pose.position.x;
-        initState(particleIdx,1) = InitGnssEnu.pose.position.y;
-        initState(particleIdx,2) = InitGnssEnu.pose.position.z;
+        initState(particleIdx,0) = m_psInitGnssEnu.pose.position.x;
+        initState(particleIdx,1) = m_psInitGnssEnu.pose.position.y;
+        initState(particleIdx,2) = m_psInitGnssEnu.pose.position.z;
+  
         // Velocity
         initState(particleIdx,3) = 0.0;
         initState(particleIdx,4) = 0.0;
         initState(particleIdx,5) = 0.0;
-        //
+        
+        // Orientation 
+        
 
 
 
@@ -269,33 +274,60 @@ void MapMatchingPF::ParticleInit()
 
 
 
-void MapMatchingPF::CallBackGNSS(const sensor_msgs::NavSatFix::ConstPtr &msg)
+void MapMatchingPF::CallBackGnss(const sensor_msgs::NavSatFix::ConstPtr &msg)
 { 
+    
+    double timestamp = (double)msg->header.stamp.sec * 1e6 + (double)msg->header.stamp.nsec / 1e3;
+    static double prev_timestamp = timestamp;
 
     if(!m_bIsInitGNSS)
     {
-        m_gnssInitGnss.timestamp = (double)msg->header.stamp.sec * 1e6 + (double)msg->header.stamp.nsec / 1e3;
-        m_gnssInitGnss.latitude = msg->latitude;
-        m_gnssInitGnss.longitude = msg->longitude;
-        m_gnssInitGnss.altitude = msg->altitude; 
+        double sample_time = (timestamp - prev_timestamp) / 1e6;
+        
+        // average of GNSS 
+        if (sample_time <= Interval)
+        {
+            GNSS temp_gnss;
+            temp_gnss.latitude = msg->latitude;
+            temp_gnss.longitude = msg->longitude;
+            temp_gnss.altitude = msg->altitude;
+            temp_gnss.latitude_std = msg->position_covariance[0];
+            temp_gnss.longitude_std = msg->position_covariance[4];
+            temp_gnss.altitude_std = msg->position_covariance[8];
 
+
+            // accumulation 
+            m_gnssGnssSum.latitude += temp_gnss.latitude;
+            m_gnssGnssSum.longitude += temp_gnss.longitude;
+            m_gnssGnssSum.altitude += temp_gnss.altitude;
+
+            m_iGnssCount++;
+
+            return;
+        }
+
+        // Average of GNSS during 15s
+        m_gnssInitGnss.timestamp = timestamp;
+        m_gnssInitGnss.latitude = m_gnssGnssSum.latitude / m_iGnssCount;
+        m_gnssInitGnss.longitude = m_gnssGnssSum.longitude / m_iGnssCount;
+        m_gnssInitGnss.altitude = m_gnssGnssSum.altitude / m_iGnssCount; 
+
+        m_psInitGnssEnu.pose.position = llh2enu(m_gnssInitGnss.latitude, m_gnssInitGnss.longitude, m_gnssInitGnss.altitude);
+        
         if(_DEBUG_MODE)
         {
             std::cout << "====================== [map_matching_pf] REF GNSS ======================\n"
             << "ref gnss\n" << "ref_gnss_latitude: " << std::setprecision(12) << m_gnssInitGnss.latitude 
             << " ref_gnss_longitude: " << std::setprecision(12) << m_gnssInitGnss.longitude 
-            << " ref_gnss_altitude: " << std::setprecision(12) << m_gnssInitGnss.altitude << std::endl;
-        }
+            << " ref_gnss_altitude: " << std::setprecision(12) << m_gnssInitGnss.altitude << "\n" << std::endl;
 
-        m_psInitGnssEnu.pose.position = llh2enu(m_gnssInitGnss.latitude, m_gnssInitGnss.longitude, m_gnssInitGnss.altitude);
-        if(_DEBUG_MODE)
-        {
             std::cout << "====================== [map_matching_pf] REF GNSS (map coordinate) ======================\n"
             << "ref gnss\n" << "ref_x: " << std::setprecision(12) << m_psInitGnssEnu.pose.position.x
             << " ref_y: " << std::setprecision(12) << m_psInitGnssEnu.pose.position.y 
-            << " ref_z: " << std::setprecision(12) << m_psInitGnssEnu.pose.position.z << std::endl;
+            << " ref_z: " << std::setprecision(12) << m_psInitGnssEnu.pose.position.z << "\n" << std::endl;
         }
-
+    
+        // // Visualization
         // visualization_msgs::Marker gnss_marker;
         // geometry_msgs::Point p;
 
@@ -326,59 +358,102 @@ void MapMatchingPF::CallBackGNSS(const sensor_msgs::NavSatFix::ConstPtr &msg)
         // ParticleInit(m_psInitGnssEnu);
 
         m_bIsInitGNSS = true;
+        return;
     }
 
     m_bGnssExistFlag = true;
 
-    m_gnssGnss.timestamp = (double)msg->header.stamp.sec * 1e6 + (double)msg->header.stamp.nsec / 1e3;
+    m_gnssGnss.timestamp = timestamp;
     m_gnssGnss.latitude = msg->latitude;
     m_gnssGnss.longitude = msg->longitude;
     m_gnssGnss.altitude = msg->altitude;
 
     m_psGnssEnu.pose.position = llh2enu(m_gnssGnss.latitude, m_gnssGnss.longitude, m_gnssGnss.altitude);
 
-    visualization_msgs::Marker gnss_marker;
-    geometry_msgs::Point p;
+    // // Visualization
+    // visualization_msgs::Marker gnss_marker;
+    // geometry_msgs::Point p;
 
-    p.x = m_psGnssEnu.pose.position.x;
-    p.y = m_psGnssEnu.pose.position.y;
-    p.z = m_psGnssEnu.pose.position.z;
+    // p.x = m_psGnssEnu.pose.position.x;
+    // p.y = m_psGnssEnu.pose.position.y;
+    // p.z = m_psGnssEnu.pose.position.z;
 
-    gnss_marker.header.frame_id = "/map";
-    gnss_marker.ns = "initialGnss";
-    gnss_marker.id = 1;
-    gnss_marker.type = visualization_msgs::Marker::POINTS;
-    gnss_marker.scale.x = 1.2;
-    gnss_marker.scale.y = 1.2;
-    gnss_marker.color.r = 1.f;
-    gnss_marker.color.g = 0.f;
-    gnss_marker.color.b = 0.f;
-    gnss_marker.color.a = 1.0;
-    gnss_marker.color.b = 0.0;
-    gnss_marker.lifetime = ros::Duration(100);
+    // gnss_marker.header.frame_id = "/map";
+    // gnss_marker.ns = "initialGnss";
+    // gnss_marker.id = 1;
+    // gnss_marker.type = visualization_msgs::Marker::POINTS;
+    // gnss_marker.scale.x = 1.2;
+    // gnss_marker.scale.y = 1.2;
+    // gnss_marker.color.r = 1.f;
+    // gnss_marker.color.g = 0.f;
+    // gnss_marker.color.b = 0.f;
+    // gnss_marker.color.a = 1.0;
+    // gnss_marker.color.b = 0.0;
+    // gnss_marker.lifetime = ros::Duration(100);
 
-    gnss_marker.points.push_back(p);
+    // gnss_marker.points.push_back(p);
 
-    m_pub_gnss_points.publish(gnss_marker);
-    usleep(100);
+    // m_pub_gnss_points.publish(gnss_marker);
+    // usleep(100);
 
 }
 
-void MapMatchingPF::CallBackIMU(const sensor_msgs::Imu::ConstPtr &msg)
+void MapMatchingPF::CallBackImu(const sensor_msgs::Imu::ConstPtr &msg)
 {
+
+    double timestamp = (double)msg->header.stamp.sec * 1e6 + (double)msg->header.stamp.nsec / 1e3;
+    static double prev_timestamp = timestamp;
+
+    if(!m_bIsFirstIMUStep) 
+    {
+        double sample_time = (timestamp - prev_timestamp) / 1e6;
+        
+        if (sample_time <= Interval)
+        {
+            IMU temp_imu;
+            temp_imu.linear_acceleration_x = msg->linear_acceleration.x;
+            temp_imu.linear_acceleration_y = msg->linear_acceleration.y;
+            temp_imu.linear_acceleration_z = msg->linear_acceleration.z;
+            temp_imu.angular_velocity_x = msg->angular_velocity.x;
+            temp_imu.angular_velocity_y = msg->angular_velocity.y;
+            temp_imu.angular_velocity_z = msg->angular_velocity.z;
+
+            m_imuImuSum.linear_acceleration_x += temp_imu.linear_acceleration_x;
+            m_imuImuSum.linear_acceleration_y += temp_imu.linear_acceleration_y;
+            m_imuImuSum.linear_acceleration_z += temp_imu.linear_acceleration_z;
+            m_imuImuSum.angular_velocity_x += temp_imu.angular_velocity_x;
+            m_imuImuSum.angular_velocity_y += temp_imu.angular_velocity_y;
+            m_imuImuSum.angular_velocity_z += temp_imu.angular_velocity_z;
+
+
+            m_iImuCount++;
+            return;
+        }
+
+        m_imuInitImu.timestamp = timestamp;
+        m_imuInitImu.linear_acceleration_x = m_imuImuSum.linear_acceleration_x / m_iImuCount;
+        m_imuInitImu.linear_acceleration_y = m_imuImuSum.linear_acceleration_y / m_iImuCount;
+        m_imuInitImu.linear_acceleration_z = m_imuImuSum.linear_acceleration_z / m_iImuCount;
+        m_imuInitImu.angular_velocity_x = m_imuInitImu.angular_velocity_x / m_iImuCount;
+        m_imuInitImu.angular_velocity_y = m_imuInitImu.angular_velocity_y / m_iImuCount;
+        m_imuInitImu.angular_velocity_z = m_imuInitImu.angular_velocity_z / m_iImuCount;
+
+        if(_DEBUG_MODE)
+        {
+            std::cout << "====================== [map_matching_pf] STATIONARY IMU DATA ======================\n"
+            << "m_imuInitImu.linear_acceleration_x : " << std::setprecision(12) << m_imuInitImu.linear_acceleration_x << "\n" 
+            << " m_imuInitImu.linear_acceleration_y : " << std::setprecision(12) << m_imuInitImu.linear_acceleration_y << "\n"
+            << " m_imuInitImu.linear_acceleration_z : " << std::setprecision(12) << m_imuInitImu.linear_acceleration_z << "\n"
+            << " m_imuInitImu.angular_velocity_x : " << std::setprecision(12) << m_imuInitImu.angular_velocity_x << "\n"
+            << " m_imuInitImu.angular_velocity_y : " << std::setprecision(12) << m_imuInitImu.angular_velocity_y << "\n"
+            << " m_imuInitImu.angular_velocity_z : " << std::setprecision(12) << m_imuInitImu.angular_velocity_z << "\n" << std::endl;
+        }
+
+        m_bIsFirstIMUStep = true;
+        return;
+    }
+
     // m_bImuExistFlag = true;
-
-    // double timestamp = (double)msg->header.stamp.sec * 1e6 + (double)msg->header.stamp.nsec / 1e3;
-    // static double prev_timestamp = timestamp;
-
-    // if(!m_bIsFirstIMUStep) 
-    // {
-    //     m_bIsFirstIMUStep = true;
-    //     return;
-    // }
-
-    // double sample_time = (timestamp - prev_timestamp) / 1e6;
-
     // m_imuImu.timestamp = timestamp;
     // m_imuImu.linear_acceleration_x = msg->linear_acceleration.x;
     // m_imuImu.linear_acceleration_y = msg->linear_acceleration.y;
@@ -395,6 +470,54 @@ void MapMatchingPF::CallBackIMU(const sensor_msgs::Imu::ConstPtr &msg)
     // }
 
     // prev_timestamp = timestamp;
+
+}
+
+void MapMatchingPF::CallBackImuMagnetometer(const sensor_msgs::MagneticField::ConstPtr &msg)
+{
+
+    double timestamp = (double)msg->header.stamp.sec * 1e6 + (double)msg->header.stamp.nsec / 1e3;
+    static double prev_timestamp = timestamp;
+
+    if(!m_bIsFirstMagnetometerStep)
+    {
+        double sample_time = (timestamp - prev_timestamp) / 1e6;
+
+        if(sample_time <= Interval)
+        {    
+            IMU temp_imu;
+            temp_imu.magnetic_field_x = msg->magnetic_field.x;
+            temp_imu.magnetic_field_y = msg->magnetic_field.y;
+            temp_imu.magnetic_field_z = msg->magnetic_field.z;
+
+            m_imuImuSum.magnetic_field_x += temp_imu.magnetic_field_x;
+            m_imuImuSum.magnetic_field_y += temp_imu.magnetic_field_y;
+            m_imuImuSum.magnetic_field_z += temp_imu.magnetic_field_z;
+
+            m_iMagnetometerCount++;
+            return;
+        }
+
+        m_imuInitImu.magnetic_field_x = m_imuImuSum.magnetic_field_x / m_iMagnetometerCount;
+        m_imuInitImu.magnetic_field_y = m_imuImuSum.magnetic_field_y / m_iMagnetometerCount;
+        m_imuInitImu.magnetic_field_z = m_imuImuSum.magnetic_field_z / m_iMagnetometerCount;
+
+        if(_DEBUG_MODE)
+        {
+            std::cout << "====================== [map_matching_pf] STATIONARY MAGNETOMETER DATA ======================\n"
+            << "m_imuInitImu.magnetic_field_x: " << std::setprecision(12) << m_imuInitImu.magnetic_field_x << "\n"
+            << "m_imuInitImu.magnetic_field_y: " << std::setprecision(12) << m_imuInitImu.magnetic_field_y << "\n"
+            << "m_imuInitImu.magnetic_field_z: " << std::setprecision(12) << m_imuInitImu.magnetic_field_z << "\n" << std::endl;
+        }
+
+        m_bIsFirstMagnetometerStep = true;
+        return;
+    } 
+
+    // m_imuImu.magnetic_field_x = msg->magnetic_field.x;
+    // m_imuImu.magnetic_field_y = msg->magnetic_field.y;
+    // m_imuImu.magnetic_field_z = msg->magnetic_field.z;
+
 
 }
 
