@@ -263,6 +263,35 @@ void MapMatchingPF::ParticleInit()
         initState(particleIdx,5) = 0.0;
         
         // Orientation 
+        double initial_roll;
+        double initial_pitch;
+        double initial_yaw;
+        double numerator;
+        double denominator;
+
+        numerator = m_imuInitImu.linear_acceleration_y;
+        denominator = m_imuInitImu.linear_acceleration_z;
+        initial_roll = atan2(numerator, denominator) * RAD2DEG;
+
+        numerator = -m_imuInitImu.linear_acceleration_x;
+        denominator = sqrt(m_imuInitImu.linear_acceleration_y * m_imuInitImu.linear_acceleration_y + m_imuInitImu.linear_acceleration_z * m_imuInitImu.linear_acceleration_z);
+        initial_pitch = atan2(numerator, denominator) * RAD2DEG;      // radian
+
+        numerator = -m_imuInitImu.magnetic_field_y * cos(initial_roll) + m_imuInitImu.magnetic_field_z * sin(initial_roll);
+        denominator = m_imuInitImu.magnetic_field_x * cos(initial_pitch) + m_imuInitImu.magnetic_field_y * sin(initial_roll) * sin(initial_pitch) 
+                    + m_imuInitImu.magnetic_field_z * cos(initial_roll) * sin(initial_pitch); 
+        initial_yaw = atan2(numerator, denominator) * RAD2DEG;
+
+        ROS_ERROR("initial_roll: %lf", initial_roll);
+        ROS_ERROR("initial_pitch: %lf", initial_pitch);
+        ROS_ERROR("initial_yaw: %lf", initial_yaw);
+
+
+
+        // initState(particleIdx,6)
+        // initState(particleIdx,7)
+        // initState(particleIdx,8)
+        // initState(particleIdx,9)
         
 
 

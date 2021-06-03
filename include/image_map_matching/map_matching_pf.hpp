@@ -14,6 +14,7 @@
 #include <geometry_msgs/PoseStamped.h>
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
+#include <tf/tf.h>
 
 #include <opencv2/core/mat.hpp>
 #include <eigen3/Eigen/Core>
@@ -45,6 +46,7 @@ class MapMatchingPF
         double magnetic_field_x = 0.0;
         double magnetic_field_y = 0.0;
         double magnetic_field_z = 0.0;
+
 
     };
 
