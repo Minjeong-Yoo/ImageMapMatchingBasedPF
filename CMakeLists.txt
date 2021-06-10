@@ -150,6 +150,9 @@ add_executable(${PROJECT_NAME}
 add_executable(mavic_data_publisher 
   src/mavic_data_publisher.cpp)
 
+add_executable(tfBroadcaster
+  src/tf_broadcaster.cpp)
+
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
 ## target back to the shorter version for ease of user use
@@ -161,6 +164,9 @@ add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EX
 
 add_dependencies(mavic_data_publisher ${catkin_EXPORTED_TARGETS})
 
+add_dependencies(tfBroadcaster ${catkin_EXPORTED_TARGETS})
+
+
 ## Specify libraries to link a library or executable target against
 target_link_libraries(${PROJECT_NAME}
   ${catkin_LIBRARIES}
@@ -169,6 +175,10 @@ target_link_libraries(${PROJECT_NAME}
 target_link_libraries(mavic_data_publisher
   ${catkin_LIBRARIES}
   ${OpenCV_LIBS}
+)
+
+target_link_libraries(tfBroadcaster
+  ${catkin_LIBRARIES}
 )
 
 #############

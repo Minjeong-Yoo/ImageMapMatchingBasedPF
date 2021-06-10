@@ -4,6 +4,7 @@
 #include <string>
 #include <unistd.h>
 #include <random>
+#include <chrono>
 
 #include <ros/ros.h>
 
@@ -15,6 +16,7 @@
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <tf/tf.h>
+#include <tf2/LinearMath/Quaternion.h>
 
 #include <opencv2/core/mat.hpp>
 #include <eigen3/Eigen/Core>
@@ -53,6 +55,8 @@ class MapMatchingPF
     public:
         explicit MapMatchingPF();
         ~MapMatchingPF();
+        
+        void Run();
 
     private:
         void GetParameter();
@@ -66,7 +70,10 @@ class MapMatchingPF
         void CallBackImu(const sensor_msgs::Imu::ConstPtr &msg);
         void CallBackImuMagnetometer(const sensor_msgs::MagneticField::ConstPtr &msg);
 
+        void PFPrediction();
 
+        void TRIAD(double body2Nav_east, double body2Nav_north, double body2Nav_up);
+        
 
         // Utils
         inline geometry_msgs::Point llh2enu(double latitude, double longitude, double altitude);
@@ -118,6 +125,17 @@ class MapMatchingPF
         IMU m_imuInitImu;
         IMU m_imuImu;
         IMU m_imuImuSum;
+
+        double m_dStdInputAccX_mss;
+        double m_dStdInputAccY_mss;
+        double m_dStdInputAccZ_mss;
+        // double m_dStdInputRollRate_rads;
+        // double m_dStdInputPitchRate_rads;
+        // double m_dStdInputYawRate_rads;
+        double m_dStdInputRollRate_degs;
+        double m_dStdInputPitchRate_degs;
+        double m_dStdInputYawRate_degs;
+
 
         // Flag 
         bool _DEBUG_MODE;

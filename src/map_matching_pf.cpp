@@ -4,7 +4,8 @@
 
 MapMatchingPF::MapMatchingPF()
 :m_bIsInit(false), m_bIsInitGNSS(false), m_bIsFirstIMUStep(false), m_bIsFirstMagnetometerStep(false), m_bMapInit(false),
-m_bGnssExistFlag(false), m_bImuExistFlag(false),
+m_bGnssExistFlag(false), m_bImuExistFlag(false), 
+m_dStdInputAccX_mss(0.0), m_dStdInputAccY_mss(0.0), m_dStdInputAccZ_mss(0.0), m_dStdInputRollRate_degs(0.0), m_dStdInputPitchRate_degs(0.0), m_dStdInputYawRate_degs(0.0),
 m_dMapHeight(7.0)
 {
     GetParameter();
@@ -52,6 +53,14 @@ void MapMatchingPF::GetParameter()
     nh.getParam("map_matching_pf/m_dStdEast", m_dStdEast);
     nh.getParam("map_matching_pf/m_dStdNorth", m_dStdNorth);
     nh.getParam("map_matching_pf/m_dStdUp", m_dStdUp);
+    nh.getParam("map_matching_pf/m_dStdInputAccX_mss", m_dStdInputAccX_mss);
+    nh.getParam("map_matching_pf/m_dStdInputAccY_mss", m_dStdInputAccY_mss);
+    nh.getParam("map_matching_pf/m_dStdInputAccZ_mss", m_dStdInputAccZ_mss);
+    nh.getParam("map_matching_pf/m_dStdInputRollRate_degs", m_dStdInputRollRate_degs);
+    nh.getParam("map_matching_pf/m_dStdInputPitchRate_degs", m_dStdInputPitchRate_degs);
+    nh.getParam("map_matching_pf/m_dStdInputYawRate_degs", m_dStdInputYawRate_degs);
+
+    
 
     if(_DEBUG_MODE)
     {
@@ -61,9 +70,15 @@ void MapMatchingPF::GetParameter()
         ROS_INFO("[%s] m_MapWayPath: %s", __APP_NAME__, m_MapWayPath.c_str());
         ROS_INFO("[%s] m_cfg_iNumParticle: %d", __APP_NAME__, m_cfg_iNumParticle);
         ROS_INFO("[%s] m_cfg_iNumState: %d", __APP_NAME__, m_iNumState);
-        ROS_INFO("[%s] m_cfg_iNumState: %lf", __APP_NAME__, m_dStdEast);
-        ROS_INFO("[%s] m_cfg_iNumState: %lf", __APP_NAME__, m_dStdNorth);
-        ROS_INFO("[%s] m_cfg_iNumState: %lf\n", __APP_NAME__, m_dStdUp);
+        ROS_INFO("[%s] m_dStdEast: %lf", __APP_NAME__, m_dStdEast);
+        ROS_INFO("[%s] m_dStdNorth: %lf", __APP_NAME__, m_dStdNorth);
+        ROS_INFO("[%s] m_dStdUp: %lf\n", __APP_NAME__, m_dStdUp);
+        ROS_INFO("[%s] m_dStdInputAccX_mss: %lf\n", __APP_NAME__, m_dStdInputAccX_mss);
+        ROS_INFO("[%s] m_dStdInputAccY_mss: %lf\n", __APP_NAME__, m_dStdInputAccY_mss);
+        ROS_INFO("[%s] m_dStdInputAccZ_mss: %lf\n", __APP_NAME__, m_dStdInputAccZ_mss);
+        ROS_INFO("[%s] m_dStdInputRollRate_degs: %lf\n", __APP_NAME__, m_dStdInputRollRate_degs);
+        ROS_INFO("[%s] m_dStdInputPitchRate_degs: %lf\n", __APP_NAME__, m_dStdInputPitchRate_degs);
+        ROS_INFO("[%s] m_dStdInputYawRate_degs: %lf\n", __APP_NAME__, m_dStdInputYawRate_degs);
     }
 }
 
@@ -150,6 +165,7 @@ void MapMatchingPF::MapReader()
     m_bMapInit = true;
     MapVisualizer();
 }
+
 
 void MapMatchingPF::MapVisualizer()
 {
@@ -263,42 +279,98 @@ void MapMatchingPF::ParticleInit()
         initState(particleIdx,5) = 0.0;
         
         // Orientation 
+        double body2Nav_east;
+        double body2Nav_north;
+        double body2Nav_up;
+
+        TRIAD(body2Nav_east, body2Nav_north, body2Nav_up);        // body frame 2 navigation frame 
+
+        // // particle transformation (body -> navigation frame)
+        // Eigen::Matrix4d body2NavTransformation;
+
+        
         double initial_roll;
         double initial_pitch;
         double initial_yaw;
         double numerator;
         double denominator;
 
+        // roll
         numerator = m_imuInitImu.linear_acceleration_y;
         denominator = m_imuInitImu.linear_acceleration_z;
-        initial_roll = atan2(numerator, denominator) * RAD2DEG;
+        initial_roll = atan2f(numerator, denominator);       // deg
 
-        numerator = -m_imuInitImu.linear_acceleration_x;
+        // pitch
+        numerator = m_imuInitImu.linear_acceleration_x;
         denominator = sqrt(m_imuInitImu.linear_acceleration_y * m_imuInitImu.linear_acceleration_y + m_imuInitImu.linear_acceleration_z * m_imuInitImu.linear_acceleration_z);
-        initial_pitch = atan2(numerator, denominator) * RAD2DEG;      // radian
+        initial_pitch = atan2f(numerator, denominator);      // deg
+        
+        // yaw
+        double mag_norm = sqrt((m_imuInitImu.magnetic_field_x * m_imuInitImu.magnetic_field_x) + (m_imuInitImu.magnetic_field_y * m_imuInitImu.magnetic_field_x)
+                                + m_imuInitImu.magnetic_field_z * m_imuInitImu.magnetic_field_z);
+        double mag_x = m_imuInitImu.magnetic_field_x / mag_norm;
+        double mag_y = m_imuInitImu.magnetic_field_y / mag_norm;
+        double mag_z = m_imuInitImu.magnetic_field_z / mag_norm;
 
         numerator = -m_imuInitImu.magnetic_field_y * cos(initial_roll) + m_imuInitImu.magnetic_field_z * sin(initial_roll);
         denominator = m_imuInitImu.magnetic_field_x * cos(initial_pitch) + m_imuInitImu.magnetic_field_y * sin(initial_roll) * sin(initial_pitch) 
                     + m_imuInitImu.magnetic_field_z * cos(initial_roll) * sin(initial_pitch); 
-        initial_yaw = atan2(numerator, denominator) * RAD2DEG;
+        initial_yaw = atan2(numerator, denominator) * RAD2DEG;     // rad
 
-        ROS_ERROR("initial_roll: %lf", initial_roll);
-        ROS_ERROR("initial_pitch: %lf", initial_pitch);
+        // numerator = -mag_y * cos(initial_roll) + mag_z * sin(initial_roll);
+        // denominator = mag_x * cos(initial_pitch) + mag_y * sin(initial_roll) * sin(initial_pitch) 
+        //             + mag_z * cos(initial_roll) * sin(initial_pitch); 
+        // initial_yaw = atan2(numerator, denominator) * RAD2DEG;     // rad
+
+        ROS_ERROR("initial_roll: %lf", initial_roll * RAD2DEG);
+        ROS_ERROR("initial_pitch: %lf", initial_pitch * RAD2DEG);
         ROS_ERROR("initial_yaw: %lf", initial_yaw);
 
+        tf2::Quaternion initial_q;
+        initial_q.setRPY(initial_roll, initial_pitch, initial_yaw);
 
+        initState(particleIdx,6) = initial_q[0];
+        initState(particleIdx,7) = initial_q[1];
+        initState(particleIdx,8) = initial_q[2];
+        initState(particleIdx,9) = initial_q[3];
 
-        // initState(particleIdx,6)
-        // initState(particleIdx,7)
-        // initState(particleIdx,8)
-        // initState(particleIdx,9)
-        
+        // gyroscope bias 
+        initState(particleIdx, 10) = 0.f;
+        initState(particleIdx, 11) = 0.f;
+        initState(particleIdx, 12) = 0.f;
 
-
+        // acclerometer bias
+        initState(particleIdx, 13) = 0.f;
+        initState(particleIdx, 14) = 0.f;
+        initState(particleIdx, 15) = 0.f;
 
         m_MatParticleWeight(particleIdx) = 1. / (double)m_cfg_iNumParticle;
+
+        if(_DEBUG_MODE)
+        {
+            std::cout << " initState: " << "px: " << initState(particleIdx, 0) << "\n"
+                                    << "py: " << initState(particleIdx, 1) << "\n"
+                                    << "pz: " << initState(particleIdx, 2) << "\n"
+                                    << "vx: " << initState(particleIdx, 3) << "\n"
+                                    << "vy: " << initState(particleIdx, 4) << "\n"
+                                    << "vz: " << initState(particleIdx, 5) << "\n"
+                                    << "qx: " << initState(particleIdx, 6) << "\n"
+                                    << "qy: " << initState(particleIdx, 7) << "\n"
+                                    << "qz: " << initState(particleIdx, 8) << "\n"
+                                    << "qw: " << initState(particleIdx, 9) << "\n" 
+                                    << "b_gyro_x: " << initState(particleIdx, 10) << "\n" 
+                                    << "b_gyro_y: " << initState(particleIdx, 11) << "\n" 
+                                    << "b_gyro_z: " << initState(particleIdx, 12) << "\n" 
+                                    << "b_accel_x: " << initState(particleIdx, 13) << "\n" 
+                                    << "b_accel_y: " << initState(particleIdx, 14) << "\n" 
+                                    << "b_accel_z: " << initState(particleIdx, 15) << std::endl;
+
+        }
+
     }
 
+    m_MatTimestampStatePF = initState;
+        
 }
 
 
@@ -311,35 +383,40 @@ void MapMatchingPF::CallBackGnss(const sensor_msgs::NavSatFix::ConstPtr &msg)
 
     if(!m_bIsInitGNSS)
     {
-        double sample_time = (timestamp - prev_timestamp) / 1e6;
+        // double sample_time = (timestamp - prev_timestamp) / 1e6;
         
-        // average of GNSS 
-        if (sample_time <= Interval)
-        {
-            GNSS temp_gnss;
-            temp_gnss.latitude = msg->latitude;
-            temp_gnss.longitude = msg->longitude;
-            temp_gnss.altitude = msg->altitude;
-            temp_gnss.latitude_std = msg->position_covariance[0];
-            temp_gnss.longitude_std = msg->position_covariance[4];
-            temp_gnss.altitude_std = msg->position_covariance[8];
+        // // average of GNSS 
+        // if (sample_time <= Interval)
+        // {
+        //     GNSS temp_gnss;
+        //     temp_gnss.latitude = msg->latitude;
+        //     temp_gnss.longitude = msg->longitude;
+        //     temp_gnss.altitude = msg->altitude;
+        //     temp_gnss.latitude_std = msg->position_covariance[0];
+        //     temp_gnss.longitude_std = msg->position_covariance[4];
+        //     temp_gnss.altitude_std = msg->position_covariance[8];
 
 
-            // accumulation 
-            m_gnssGnssSum.latitude += temp_gnss.latitude;
-            m_gnssGnssSum.longitude += temp_gnss.longitude;
-            m_gnssGnssSum.altitude += temp_gnss.altitude;
+        //     // accumulation 
+        //     m_gnssGnssSum.latitude += temp_gnss.latitude;
+        //     m_gnssGnssSum.longitude += temp_gnss.longitude;
+        //     m_gnssGnssSum.altitude += temp_gnss.altitude;
 
-            m_iGnssCount++;
+        //     m_iGnssCount++;
 
-            return;
-        }
+        //     return;
+        // }
 
         // Average of GNSS during 15s
+        // m_gnssInitGnss.timestamp = timestamp;
+        // m_gnssInitGnss.latitude = m_gnssGnssSum.latitude / m_iGnssCount;
+        // m_gnssInitGnss.longitude = m_gnssGnssSum.longitude / m_iGnssCount;
+        // m_gnssInitGnss.altitude = m_gnssGnssSum.altitude / m_iGnssCount; 
+
         m_gnssInitGnss.timestamp = timestamp;
-        m_gnssInitGnss.latitude = m_gnssGnssSum.latitude / m_iGnssCount;
-        m_gnssInitGnss.longitude = m_gnssGnssSum.longitude / m_iGnssCount;
-        m_gnssInitGnss.altitude = m_gnssGnssSum.altitude / m_iGnssCount; 
+        m_gnssInitGnss.latitude = msg->latitude;
+        m_gnssInitGnss.longitude = msg->longitude;
+        m_gnssInitGnss.altitude = msg->altitude; 
 
         m_psInitGnssEnu.pose.position = llh2enu(m_gnssInitGnss.latitude, m_gnssInitGnss.longitude, m_gnssInitGnss.altitude);
         
@@ -431,41 +508,50 @@ void MapMatchingPF::CallBackImu(const sensor_msgs::Imu::ConstPtr &msg)
 {
 
     double timestamp = (double)msg->header.stamp.sec * 1e6 + (double)msg->header.stamp.nsec / 1e3;
+    static double init_timestamp = timestamp;
     static double prev_timestamp = timestamp;
 
     if(!m_bIsFirstIMUStep) 
     {
-        double sample_time = (timestamp - prev_timestamp) / 1e6;
-        
-        if (sample_time <= Interval)
-        {
-            IMU temp_imu;
-            temp_imu.linear_acceleration_x = msg->linear_acceleration.x;
-            temp_imu.linear_acceleration_y = msg->linear_acceleration.y;
-            temp_imu.linear_acceleration_z = msg->linear_acceleration.z;
-            temp_imu.angular_velocity_x = msg->angular_velocity.x;
-            temp_imu.angular_velocity_y = msg->angular_velocity.y;
-            temp_imu.angular_velocity_z = msg->angular_velocity.z;
+        // double sample_time = (timestamp - prev_timestamp) / 1e6;
 
-            m_imuImuSum.linear_acceleration_x += temp_imu.linear_acceleration_x;
-            m_imuImuSum.linear_acceleration_y += temp_imu.linear_acceleration_y;
-            m_imuImuSum.linear_acceleration_z += temp_imu.linear_acceleration_z;
-            m_imuImuSum.angular_velocity_x += temp_imu.angular_velocity_x;
-            m_imuImuSum.angular_velocity_y += temp_imu.angular_velocity_y;
-            m_imuImuSum.angular_velocity_z += temp_imu.angular_velocity_z;
+        // if (sample_time <= Interval)
+        // {
+        //     IMU temp_imu;
+        //     temp_imu.linear_acceleration_x = msg->linear_acceleration.x;
+        //     temp_imu.linear_acceleration_y = msg->linear_acceleration.y;
+        //     temp_imu.linear_acceleration_z = msg->linear_acceleration.z;
+        //     temp_imu.angular_velocity_x = msg->angular_velocity.x;
+        //     temp_imu.angular_velocity_y = msg->angular_velocity.y;
+        //     temp_imu.angular_velocity_z = msg->angular_velocity.z;
+
+        //     m_imuImuSum.linear_acceleration_x += temp_imu.linear_acceleration_x;
+        //     m_imuImuSum.linear_acceleration_y += temp_imu.linear_acceleration_y;
+        //     m_imuImuSum.linear_acceleration_z += temp_imu.linear_acceleration_z;
+        //     m_imuImuSum.angular_velocity_x += temp_imu.angular_velocity_x;
+        //     m_imuImuSum.angular_velocity_y += temp_imu.angular_velocity_y;
+        //     m_imuImuSum.angular_velocity_z += temp_imu.angular_velocity_z;
 
 
-            m_iImuCount++;
-            return;
-        }
+        //     m_iImuCount++;
+        //     return;
+        // }
 
-        m_imuInitImu.timestamp = timestamp;
-        m_imuInitImu.linear_acceleration_x = m_imuImuSum.linear_acceleration_x / m_iImuCount;
-        m_imuInitImu.linear_acceleration_y = m_imuImuSum.linear_acceleration_y / m_iImuCount;
-        m_imuInitImu.linear_acceleration_z = m_imuImuSum.linear_acceleration_z / m_iImuCount;
-        m_imuInitImu.angular_velocity_x = m_imuInitImu.angular_velocity_x / m_iImuCount;
-        m_imuInitImu.angular_velocity_y = m_imuInitImu.angular_velocity_y / m_iImuCount;
-        m_imuInitImu.angular_velocity_z = m_imuInitImu.angular_velocity_z / m_iImuCount;
+        // m_imuInitImu.timestamp = timestamp;
+        // m_imuInitImu.linear_acceleration_x = m_imuImuSum.linear_acceleration_x / m_iImuCount;
+        // m_imuInitImu.linear_acceleration_y = m_imuImuSum.linear_acceleration_y / m_iImuCount;
+        // m_imuInitImu.linear_acceleration_z = m_imuImuSum.linear_acceleration_z / m_iImuCount;
+        // m_imuInitImu.angular_velocity_x = m_imuInitImu.angular_velocity_x / m_iImuCount;
+        // m_imuInitImu.angular_velocity_y = m_imuInitImu.angular_velocity_y / m_iImuCount;
+        // m_imuInitImu.angular_velocity_z = m_imuInitImu.angular_velocity_z / m_iImuCount;
+
+        m_imuInitImu.linear_acceleration_x = msg->linear_acceleration.x;
+        m_imuInitImu.linear_acceleration_y = msg->linear_acceleration.y;
+        m_imuInitImu.linear_acceleration_z = msg->linear_acceleration.z;
+        m_imuInitImu.angular_velocity_x = msg->angular_velocity.x;
+        m_imuInitImu.angular_velocity_y = msg->angular_velocity.y;
+        m_imuInitImu.angular_velocity_z = msg->angular_velocity.z;
+
 
         if(_DEBUG_MODE)
         {
@@ -478,27 +564,22 @@ void MapMatchingPF::CallBackImu(const sensor_msgs::Imu::ConstPtr &msg)
             << " m_imuInitImu.angular_velocity_z : " << std::setprecision(12) << m_imuInitImu.angular_velocity_z << "\n" << std::endl;
         }
 
+        prev_timestamp = timestamp;        
         m_bIsFirstIMUStep = true;
         return;
     }
 
-    // m_bImuExistFlag = true;
-    // m_imuImu.timestamp = timestamp;
-    // m_imuImu.linear_acceleration_x = msg->linear_acceleration.x;
-    // m_imuImu.linear_acceleration_y = msg->linear_acceleration.y;
-    // m_imuImu.linear_acceleration_z = msg->linear_acceleration.z;
-    // m_imuImu.angular_velocity_x = msg->angular_velocity.x;
-    // m_imuImu.angular_velocity_y = msg->angular_velocity.y;
-    // m_imuImu.angular_velocity_z = msg->angular_velocity.z;
+    m_bImuExistFlag = true;
 
-    // if(_DEBUG_MODE)
-    // {
-    //     std::cout << "====================== IMU ======================\n" 
-    //     << "m"
-         
-    // }
+    m_imuImu.timestamp = timestamp;
+    m_imuImu.linear_acceleration_x = msg->linear_acceleration.x;
+    m_imuImu.linear_acceleration_y = msg->linear_acceleration.y;
+    m_imuImu.linear_acceleration_z = msg->linear_acceleration.z;
+    m_imuImu.angular_velocity_x = msg->angular_velocity.x;
+    m_imuImu.angular_velocity_y = msg->angular_velocity.y;
+    m_imuImu.angular_velocity_z = msg->angular_velocity.z;
 
-    // prev_timestamp = timestamp;
+    prev_timestamp = timestamp;
 
 }
 
@@ -510,26 +591,31 @@ void MapMatchingPF::CallBackImuMagnetometer(const sensor_msgs::MagneticField::Co
 
     if(!m_bIsFirstMagnetometerStep)
     {
-        double sample_time = (timestamp - prev_timestamp) / 1e6;
+        // double sample_time = (timestamp - prev_timestamp) / 1e6;
 
-        if(sample_time <= Interval)
-        {    
-            IMU temp_imu;
-            temp_imu.magnetic_field_x = msg->magnetic_field.x;
-            temp_imu.magnetic_field_y = msg->magnetic_field.y;
-            temp_imu.magnetic_field_z = msg->magnetic_field.z;
+        // if(sample_time <= Interval)
+        // {    
+        //     IMU temp_imu;
+        //     temp_imu.magnetic_field_x = msg->magnetic_field.x;
+        //     temp_imu.magnetic_field_y = msg->magnetic_field.y;
+        //     temp_imu.magnetic_field_z = msg->magnetic_field.z;
 
-            m_imuImuSum.magnetic_field_x += temp_imu.magnetic_field_x;
-            m_imuImuSum.magnetic_field_y += temp_imu.magnetic_field_y;
-            m_imuImuSum.magnetic_field_z += temp_imu.magnetic_field_z;
+        //     m_imuImuSum.magnetic_field_x += temp_imu.magnetic_field_x;
+        //     m_imuImuSum.magnetic_field_y += temp_imu.magnetic_field_y;
+        //     m_imuImuSum.magnetic_field_z += temp_imu.magnetic_field_z;
 
-            m_iMagnetometerCount++;
-            return;
-        }
+        //     m_iMagnetometerCount++;
+        //     return;
+        // }
 
-        m_imuInitImu.magnetic_field_x = m_imuImuSum.magnetic_field_x / m_iMagnetometerCount;
-        m_imuInitImu.magnetic_field_y = m_imuImuSum.magnetic_field_y / m_iMagnetometerCount;
-        m_imuInitImu.magnetic_field_z = m_imuImuSum.magnetic_field_z / m_iMagnetometerCount;
+        // m_imuInitImu.magnetic_field_x = m_imuImuSum.magnetic_field_x / m_iMagnetometerCount;
+        // m_imuInitImu.magnetic_field_y = m_imuImuSum.magnetic_field_y / m_iMagnetometerCount;
+        // m_imuInitImu.magnetic_field_z = m_imuImuSum.magnetic_field_z / m_iMagnetometerCount;
+
+        m_imuInitImu.magnetic_field_x = msg->magnetic_field.x;
+        m_imuInitImu.magnetic_field_y = msg->magnetic_field.y;
+        m_imuInitImu.magnetic_field_z = msg->magnetic_field.z;
+
 
         if(_DEBUG_MODE)
         {
@@ -549,6 +635,194 @@ void MapMatchingPF::CallBackImuMagnetometer(const sensor_msgs::MagneticField::Co
 
 
 }
+
+
+void MapMatchingPF::TRIAD(double body2Nav_east, double body2Nav_north, double body2Nav_up)
+{
+    // Setup navigation frame vector
+    double gravity_unit_vec_n[3] = {0. , 0. , -1.};          // v1N
+    double magnetic_field_unit_vec_n[3] = {0. , 1. , 0.};        // v2N
+
+    // Setup the measured attitude states
+    double gravity_vec_b[3] = {0. , 0. , 0.};       
+    double magnetic_field_vec_b[3] = {0. , 0. , 0.};        
+
+    gravity_vec_b[0] = m_imuInitImu.linear_acceleration_x;
+    gravity_vec_b[1] = m_imuInitImu.linear_acceleration_y;
+    gravity_vec_b[2] = m_imuInitImu.linear_acceleration_z;
+
+    magnetic_field_vec_b[0] = m_imuInitImu.magnetic_field_x;
+    magnetic_field_vec_b[1] = m_imuInitImu.magnetic_field_y;
+    magnetic_field_vec_b[2] = m_imuInitImu.magnetic_field_z;
+
+    // normalize vector 
+    double gravity_vec_norm = sqrt(gravity_vec_b[0]*gravity_vec_b[0] + gravity_vec_b[1] * gravity_vec_b[1] + gravity_vec_b[2] * gravity_vec_b[2]);
+    double magnetic_field_vec_norm = sqrt(magnetic_field_vec_b[0] * magnetic_field_vec_b[0] + magnetic_field_vec_b[1] * magnetic_field_vec_b[1] 
+                                    + magnetic_field_vec_b[2] * magnetic_field_vec_b[2]);
+
+    double gravity_unit_vec_b[3] = {0. , 0. , 0.};      // v1B
+    double magnetic_field_unit_vec_b[3] = {0. , 0. , 0.};       //v2B
+
+    gravity_unit_vec_b[0] = gravity_vec_b[0] / gravity_vec_norm;
+    gravity_unit_vec_b[1] = gravity_vec_b[1] / gravity_vec_norm;
+    gravity_unit_vec_b[2] = gravity_vec_b[2] / gravity_vec_norm;
+
+    magnetic_field_unit_vec_b[0] = magnetic_field_vec_b[0] / magnetic_field_vec_norm;
+    magnetic_field_unit_vec_b[1] = magnetic_field_vec_b[1] / magnetic_field_vec_norm;
+    magnetic_field_unit_vec_b[2] = magnetic_field_vec_b[2] / magnetic_field_vec_norm;
+
+    // Develop Triad frame
+    // Body frame Triad vectors
+    double t1B[3] = {0. , 0. , 0.};
+    double t2B[3] = {0. , 0. , 0.};
+    double t3B[3] = {0. , 0. , 0.};
+
+    t1B[0] = gravity_unit_vec_b[0];
+    t1B[1] = gravity_unit_vec_b[1];
+    t1B[2] = gravity_unit_vec_b[2];
+
+    double cross_vec[3] = {0. , 0. , 0.};
+
+    cross_vec[0] = gravity_unit_vec_b[1] * magnetic_field_unit_vec_b[2] - gravity_unit_vec_b[2] * magnetic_field_unit_vec_b[1]; 
+    cross_vec[1] = gravity_unit_vec_b[2] * magnetic_field_unit_vec_b[0] - gravity_unit_vec_b[0] * magnetic_field_unit_vec_b[2];
+    cross_vec[2] = gravity_unit_vec_b[0] * magnetic_field_unit_vec_b[1] - gravity_unit_vec_b[1] * magnetic_field_unit_vec_b[0];
+
+    double cross_vec_norm = sqrt(cross_vec[0] * cross_vec[0] + cross_vec[1] * cross_vec[1] + cross_vec[2] * cross_vec[2]);
+    
+    t2B[0] = cross_vec[0] / cross_vec_norm;
+    t2B[1] = cross_vec[1] / cross_vec_norm;
+    t2B[2] = cross_vec[2] / cross_vec_norm;
+
+    cross_vec[0] = t1B[1] * t2B[2] - t1B[2] * t2B[1]; 
+    cross_vec[1] = t1B[2] * t2B[0] - t1B[0] * t2B[2];
+    cross_vec[2] = t1B[0] * t2B[1] - t1B[1] * t2B[0];
+
+    t3B[0] = cross_vec[0];
+    t3B[1] = cross_vec[1];
+    t3B[2] = cross_vec[2];
+
+    if( _DEBUG_MODE)
+    {
+        std::cout << "t1B: " << t1B[0] << ", " << t1B[1] << ", " << t1B[2] << std::endl;
+        std::cout << "t2B: " << t2B[0] << ", " << t2B[1] << ", " << t2B[2] << std::endl;
+        std::cout << "t3B: " << t3B[0] << ", " << t3B[1] << ", " << t3B[2] << std::endl;
+    }
+
+    // Inertial Frame Triad vectors 
+    double t1N[3] = {0. , 0. , 0.};
+    double t2N[3] = {0. , 0. , 0.};
+    double t3N[3] = {0. , 0. , 0.};
+
+    t1N[0] = gravity_unit_vec_n[0];
+    t1N[1] = gravity_unit_vec_n[1];
+    t1N[2] = gravity_unit_vec_n[2];
+
+    cross_vec[0] = gravity_unit_vec_n[1] * magnetic_field_unit_vec_n[2] - gravity_unit_vec_n[2] * magnetic_field_unit_vec_n[1]; 
+    cross_vec[1] = gravity_unit_vec_n[2] * magnetic_field_unit_vec_n[0] - gravity_unit_vec_n[0] * magnetic_field_unit_vec_n[2];
+    cross_vec[2] = gravity_unit_vec_n[0] * magnetic_field_unit_vec_n[1] - gravity_unit_vec_n[1] * magnetic_field_unit_vec_n[0];
+
+    cross_vec_norm = sqrt(cross_vec[0] * cross_vec[0] + cross_vec[1] * cross_vec[1] + cross_vec[2] * cross_vec[2]);
+
+    t2N[0] = cross_vec[0] / cross_vec_norm;
+    t2N[1] = cross_vec[1] / cross_vec_norm;
+    t2N[2] = cross_vec[2] / cross_vec_norm;
+
+    cross_vec[0] = t1N[1] * t2N[2] - t1N[2] * t2N[1]; 
+    cross_vec[1] = t1N[2] * t2N[0] - t1N[0] * t2N[2];
+    cross_vec[2] = t1N[0] * t2N[1] - t1N[1] * t2N[0];
+
+    t3N[0] = cross_vec[0];
+    t3N[1] = cross_vec[1];
+    t3N[2] = cross_vec[2];
+
+    if( _DEBUG_MODE)
+    {
+        std::cout << "t1N: " << t1N[0] << ", " << t1N[1] << ", " << t1N[2] << std::endl;
+        std::cout << "t2N: " << t2N[0] << ", " << t2N[1] << ", " << t2N[2] << std::endl;
+        std::cout << "t3N: " << t3N[0] << ", " << t3N[1] << ", " << t3N[2] << std::endl;
+    }
+
+    // Find Estimated Attitude
+    Eigen::Matrix3d matBody2Triad = Eigen::Matrix3d::Zero();
+    Eigen::Matrix3d matNav2Triad = Eigen::Matrix3d::Zero();
+
+    matBody2Triad << t1B[0], t2B[0], t3B[0],
+                     t1B[1], t2B[1], t3B[1],
+                     t1B[2], t2B[2], t3B[2];
+
+    matNav2Triad << t1N[0], t2N[0], t3N[0],
+                    t1N[1], t2N[1], t3N[1],
+                    t1N[2], t2N[2], t3N[2];
+
+    Eigen::Matrix3d matBody2Nav = Eigen::Matrix3d::Zero();
+    matBody2Nav = matBody2Triad * matNav2Triad.transpose();
+
+    double yaw = atan2(matBody2Nav(0,1), matBody2Nav(0,0)) * RAD2DEG;
+    double pitch = -asin(matBody2Nav(0,2)) * RAD2DEG;
+    double roll = atan(matBody2Nav(1,2) / matBody2Nav(2,2)) * RAD2DEG;
+
+    if(_DEBUG_MODE)
+    {
+        std::cout << "roll: " << roll << ", pitch: " << pitch << ", yaw: " << yaw << std::endl;
+    }
+
+}
+
+void MapMatchingPF::Run()
+{
+    if(!m_bIsInitGNSS || !m_bIsFirstIMUStep || !m_bIsFirstMagnetometerStep || !m_bMapInit)
+    {
+        return;
+    }
+
+    if(m_bImuExistFlag)
+    {
+        ROS_ERROR_STREAM("ININININ");
+        auto t1 = std::chrono::high_resolution_clock::now();
+        // Prediction CV Model
+        PFPrediction();
+
+        auto t2 = std::chrono::high_resolution_clock::now();
+
+    }
+
+
+
+
+}
+
+void MapMatchingPF::PFPrediction()
+{
+    double tmpInput[6] = {0.};
+    double tmpState[16] = {0.};
+    Eigen::MatrixXd prestate(m_cfg_iNumParticle, m_iNumState);
+
+    static double prevTimestamp = m_imuImu.timestamp;
+
+    double dt = (m_imuImu.timestamp - prevTimestamp) / 1e6;
+    prevTimestamp = m_imuImu.timestamp;
+
+    if(_DEBUG_MODE)
+    {
+        std::cout << "====================== [map_matching_pf] PFPrediction start ======================" << std::endl;
+    }
+
+    for(int particleIdx = 0; particleIdx < m_cfg_iNumParticle; particleIdx++)
+    {
+        tmpInput[0] = m_imuImu.linear_acceleration_x + GaussianRandomGenerator(0, m_dStdInputAccX_mss);
+        tmpInput[1] = m_imuImu.linear_acceleration_y + GaussianRandomGenerator(0, m_dStdInputAccY_mss);
+        tmpInput[2] = m_imuImu.linear_acceleration_z + GaussianRandomGenerator(0, m_dStdInputAccZ_mss);
+        tmpInput[3] = m_imuImu.angular_velocity_x + GaussianRandomGenerator(0, m_dStdInputRollRate_degs * DEG2RAD);
+        tmpInput[4] = m_imuImu.angular_velocity_y + GaussianRandomGenerator(0, m_dStdInputPitchRate_degs * DEG2RAD);
+        tmpInput[5] = m_imuImu.angular_velocity_z + GaussianRandomGenerator(0, m_dStdInputYawRate_degs * DEG2RAD);
+
+        tmpState[0] = m_MatTimestampStatePF(particleIdx+0) + GaussianRandomGenerator(0, );
+
+    }
+
+
+}
+
 
 
 // Utils
@@ -624,11 +898,20 @@ inline double MapMatchingPF::GaussianRandomGenerator(double dMean, double dStd)
 
 
 int main(int argc, char **argv){
+    
     ros::init(argc, argv, "map_matching_pf");
 
     MapMatchingPF MapMatchingPF;
 
-    ros::spin();
+    int loop_hz = 10;
+    ros::Rate loop_rate(loop_hz);
+
+    while(ros::ok())
+    {
+        MapMatchingPF.Run();
+        ros::spinOnce();
+        loop_rate.sleep();
+    }
 
     return 0;
 }
