@@ -7,23 +7,27 @@
     </node> -->
 
     <node pkg="image_map_matching" type="image_map_matching" name="map_matching_pf" output="screen">
-        <param name="DEBUG_MODE" value="true"/>
+        <param name="DEBUG_MODE" value="false"/>
         <param name="m_cfg_iNumParticle" value="100"/>
         <param name="m_iNumState" value="16"/>
+        <param name="m_dStdGNSS" value="1.5811"/>
+        <param name="m_dStdVelocity_ms" value="0.001"/>
+        <param name="m_dStdOrientation" value="0.1"/>
+        <param name="m_dStdGyroBias" value="3.8785e-05"/>
+        <param name="m_dStdAccelBias" value="0.006"/>
         <param name="m_dStdEast" value="0.01"/>
         <param name="m_dStdNorth" value="0.01"/>
         <param name="m_dStdUp" value="0.01"/>
         <param name="m_MapNodePath" value="$(find image_map_matching)/mapData/0224_mapdata_node_0.csv"/>
         <param name="m_MapWayPath" value="$(find image_map_matching)/mapData/0224_mapdata_way_0.csv"/>
-        <param name="m_dStdInputAccX_mss" value="0.0"/>
-        <param name="m_dStdInputAccY_mss" value="0.0"/>
-        <param name="m_dStdInputAccZ_mss" value="0.0"/>
-        <param name="m_dStdInputRollRate_degs" value="0.1"/>
-        <param name="m_dStdInputPitchRate_degs" value="0.1"/>
-        <param name="m_dStdInputYawRate_degs" value="0.1"/>
+        <param name="m_dStdInputAccX_mss" value="0.00186"/>
+        <param name="m_dStdInputAccY_mss" value="0.00186"/>
+        <param name="m_dStdInputAccZ_mss" value="0.00186"/>
+        <param name="m_dStdInputRollRate_degs" value="0.00018665"/>
+        <param name="m_dStdInputPitchRate_degs" value="0.00018665"/>
+        <param name="m_dStdInputYawRate_degs" value="0.00018665"/>
     
 
-    
     </node>
 
 </launch>

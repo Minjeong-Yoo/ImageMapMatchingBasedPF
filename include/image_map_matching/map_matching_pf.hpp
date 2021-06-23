@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <random>
 #include <chrono>
+#include <cmath>
 
 #include <ros/ros.h>
 
@@ -15,11 +16,14 @@
 #include <geometry_msgs/PoseStamped.h>
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
+
 #include <tf/tf.h>
 #include <tf2/LinearMath/Quaternion.h>
 
 #include <opencv2/core/mat.hpp>
 #include <eigen3/Eigen/Core>
+#include <eigen3/Eigen/Dense>
+#include <eigen3/Eigen/Geometry>
 
 #include "image_map_matching/map_data.hpp"
 
@@ -31,14 +35,13 @@ class MapMatchingPF
         double latitude = 0.0;
         double longitude = 0.0;
         double altitude = 0.0;
-        double latitude_std;
-        double longitude_std;
-        double altitude_std;
     };
 
     struct IMU
     {
         double timestamp;
+        tf::Quaternion initial_q;
+        double orientation[3] = {0.};
         double linear_acceleration_x = 0.0;
         double linear_acceleration_y = 0.0;
         double linear_acceleration_z = 0.0;
@@ -48,6 +51,10 @@ class MapMatchingPF
         double magnetic_field_x = 0.0;
         double magnetic_field_y = 0.0;
         double magnetic_field_z = 0.0;
+
+        double magentic_field_x_bias = -4.11705e-06;
+        double magentic_field_y_bias = 2.94433e-05;
+        double magentic_field_z_bias = -4.15828e-05;
 
 
     };
@@ -66,11 +73,13 @@ class MapMatchingPF
         void SensorInit();
         void ParticleInit();
 
-        void CallBackGnss(const sensor_msgs::NavSatFix::ConstPtr &msg);
+        void CallBackGNSS(const sensor_msgs::NavSatFix::ConstPtr &msg);
         void CallBackImu(const sensor_msgs::Imu::ConstPtr &msg);
         void CallBackImuMagnetometer(const sensor_msgs::MagneticField::ConstPtr &msg);
 
         void PFPrediction();
+        void PredictionCVModel(Eigen::Matrix<double, 6, 1> tmpInput, Eigen::Matrix<double, 16, 1> tmpState, double dt);
+
 
         void TRIAD(double body2Nav_east, double body2Nav_north, double body2Nav_up);
         
@@ -80,7 +89,8 @@ class MapMatchingPF
         inline double FnKappaLat(double dRef_Latitude, double dHeight);
         inline double FnKappaLon(double dRef_Latitude, double dHeight);
         inline double GaussianRandomGenerator(double dMean, double dStd);
-    
+        inline Eigen::Quaterniond euler2quat(double yaw, double pitch, double roll);
+        inline Eigen::Quaterniond InitialOrientation();
 
 
     
@@ -105,15 +115,14 @@ class MapMatchingPF
 
         int m_cfg_iNumParticle;
         int m_iNumState;
-        double m_dStdEast;
-        double m_dStdNorth;
-        double m_dStdUp;
 
         const double Geod_a = 6378137.0;//SemiMajorAxis
         const double Geod_e2 = 0.00669437999014; // FirstEccentricitySquard, e ^ 2 
         const double DEG2RAD = M_PI / 180;
         const double RAD2DEG = 180 / M_PI;
-        const double Interval = 15; // Sensor bias compensation during stationary periods(15s)  
+        const double Interval = 10; // Sensor bias compensation during stationary periods(15s)  
+        const double Magnetic_declination_rad = 13.78 * DEG2RAD;    // deg, Date : 2021-06-17, changing by 0.08 deg/hour
+        const double GRAVITY_MAGNITUDE = 9.79951;    // m/s^2, https://www.sensorsone.com/local-gravity-calculator/
 
         int m_iGnssCount = 0;
         int m_iImuCount = 0;
@@ -126,17 +135,23 @@ class MapMatchingPF
         IMU m_imuImu;
         IMU m_imuImuSum;
 
+        double m_dStdGNSS;
+        double m_dStdVelocity_ms;
+        double m_dStdOrientation;
+        double m_dStdGyroBias;
+        double m_dStdAccelBias;
+        
         double m_dStdInputAccX_mss;
         double m_dStdInputAccY_mss;
         double m_dStdInputAccZ_mss;
-        // double m_dStdInputRollRate_rads;
-        // double m_dStdInputPitchRate_rads;
-        // double m_dStdInputYawRate_rads;
         double m_dStdInputRollRate_degs;
         double m_dStdInputPitchRate_degs;
         double m_dStdInputYawRate_degs;
 
-
+        double m_dStdEast;
+        double m_dStdNorth;
+        double m_dStdUp;
+        
         // Flag 
         bool _DEBUG_MODE;
         bool m_bIsInit;
@@ -164,6 +179,9 @@ class MapMatchingPF
         Eigen::MatrixXd m_MatEstRepState;           // representative state
         Eigen::MatrixXd m_MatEstRepStd;
 
+        Eigen::VectorXd m_VecGravityNav;
+        // Sensor data Matrix 
+        Eigen::MatrixXd m_MatMagnetometer;
         
 
 
